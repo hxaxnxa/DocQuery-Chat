@@ -161,4 +161,4 @@ Feel free to open [issues](https://github.com/hxaxnxa/DocQuery-Chat/issues) or s
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [MIT License](License).
