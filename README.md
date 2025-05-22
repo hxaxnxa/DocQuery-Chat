@@ -1,4 +1,4 @@
-#### DocQuery-Chat
+# DocQuery-Chat
 
 A secure, chatbot-style document query application built with Streamlit, Weaviate, Gemini embeddings, and the Gemini model.
 
