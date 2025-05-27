@@ -16,4 +16,9 @@ unstructured>=0.10.30
 passlib
 weaviate-client
 streamlit
+agno
+fastapi
+uvicorn
+jinja2
+google-genai
 

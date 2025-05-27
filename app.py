@@ -3,6 +3,8 @@ import os
 import shutil
 import json
 import time
+import uuid
+import html
 from dotenv import load_dotenv
 from passlib.hash import sha256_crypt
 from pathlib import Path
@@ -34,6 +36,7 @@ st.markdown("""
     .stSidebar { background-color: rgb(66,64,64); border-right: 1px solid #e0e0e0; }
     .chat-message-user { padding: 12px; border-radius: 12px; margin: 8px 0; max-width: 80%; background-color: #007bff; color: white; margin-left: auto; }
     .chat-message-assistant { padding: 12px; border-radius: 12px; margin: 8px 0; max-width: 80%; background-color: #28a745; color: white; margin-right: auto; }
+    .chat-message-rewritten { padding: 12px; border-radius: 12px; margin: 8px 0; max-width: 80%; background-color: #6c757d; color: white; margin-right: auto; }
     .chat-container { height: 60vh; overflow-y: auto; padding: 10px; border: 1px solid #e0e0e0; border-radius: 8px; background-color: white; }
     .stTextInput { position: sticky; bottom: 0; background-color: white; padding: 10px; }
     .stButton>button { background-color: #007bff; color: white; border-radius: 8px; }
@@ -208,12 +211,22 @@ else:
         chat_container = st.container()
         with chat_container:
             for idx, message in enumerate(st.session_state.chat_history):
-                css_class = "chat-message-user" if message["role"] == "user" else "chat-message-assistant"
-                st.markdown(f"<div class='{css_class}'>{message['content']}</div>", unsafe_allow_html=True)
+                if message["role"] == "user":
+                    # Escape HTML characters in user message
+                    escaped_content = html.escape(message['content'])
+                    st.markdown(f"<div class='chat-message-user'>{escaped_content}</div>", unsafe_allow_html=True)
+                elif message["role"] == "rewritten_query":
+                    # Escape HTML characters in rewritten query
+                    escaped_content = html.escape(message['content'])
+                    st.markdown(f"<div class='chat-message-rewritten'>Rewritten Query: {escaped_content}</div>", unsafe_allow_html=True)
+                else:  # assistant
+                    # Escape HTML characters in assistant response
+                    escaped_content = html.escape(message['content'])
+                    st.markdown(f"<div class='chat-message-assistant'>{escaped_content}</div>", unsafe_allow_html=True)
                 
                 # Show feedback UI for the latest assistant message, or display finalized feedback for past messages
                 if message["role"] == "assistant":
-                    # Check if this is the latest assistant message (i.e., the last message in chat_history)
+                    # Check if this is the latest assistant message
                     is_latest_message = idx == len(st.session_state.chat_history) - 1
                     if is_latest_message:
                         # Display feedback options with a submit button
@@ -245,31 +258,47 @@ else:
 
                         # Display the current feedback if it exists
                         if "feedback" in message:
-                            st.markdown(f"**Current Feedback:** {message['feedback']}", unsafe_allow_html=True)
+                            st.markdown(f"**Current Feedback:** {html.escape(message['feedback'])}", unsafe_allow_html=True)
                     else:
                         # For past messages, display finalized feedback if it exists
                         if "feedback" in message:
-                            st.markdown(f"**Feedback:** {message['feedback']}", unsafe_allow_html=True)
+                            st.markdown(f"**Feedback:** {html.escape(message['feedback'])}", unsafe_allow_html=True)
 
         # Chat input
         if question := st.chat_input("Ask a question about the documents"):
             st.session_state.last_activity = time.time()
             st.session_state.chat_history.append({"role": "user", "content": question})
             with chat_container:
-                st.markdown(f"<div class='chat-message-user'>{question}</div>", unsafe_allow_html=True)
+                # Escape HTML characters for display
+                escaped_question = html.escape(question)
+                st.markdown(f"<div class='chat-message-user'>{escaped_question}</div>", unsafe_allow_html=True)
                 with st.spinner("Processing..."):
                     try:
+                        # Initialize the LLM
+                        llm = initialize_llm()
+                        
                         # Get the latest run ID before calling query_rag
                         runs = list(langsmith_client.list_runs(project_name="DocQuery-Chat-Eval", limit=1))
                         pre_run_id = runs[0].id if runs else None
 
                         # Query the RAG system
-                        answer = query_rag(
+                        result = query_rag(
                             question,
                             st.session_state.vector_store,
-                            initialize_llm(),
-                            st.session_state.prompt_template
+                            llm,
+                            st.session_state.prompt_template,
+                            run_id=pre_run_id
                         )
+
+                        # Extract answer and metadata
+                        answer = result["answer"]
+                        rewritten_query = result["metadata"]["rewritten_query"]
+
+                        # Log the rewritten query to chat history
+                        st.session_state.chat_history.append({"role": "rewritten_query", "content": rewritten_query})
+                        # Escape HTML characters for rewritten query display
+                        escaped_rewritten_query = html.escape(rewritten_query)
+                        st.markdown(f"<div class='chat-message-rewritten'>Rewritten Query: {escaped_rewritten_query}</div>", unsafe_allow_html=True)
 
                         # Get the latest run ID after the query
                         runs = list(langsmith_client.list_runs(project_name="DocQuery-Chat-Eval", limit=1))
