@@ -1,7 +1,9 @@
 import uuid
+from langsmith import traceable
 from langchain_weaviate.vectorstores import WeaviateVectorStore
 from langchain_core.prompts import PromptTemplate
 
+@traceable
 def store_embeddings(chunks, collection_name, client, embeddings):
     try:
         print(f"Storing embeddings in Weaviate collection: {collection_name}")
@@ -19,6 +21,7 @@ def store_embeddings(chunks, collection_name, client, embeddings):
         print(f"Error storing embeddings in Weaviate: {e}")
         raise
 
+@traceable
 def initialize_prompt():
     prompt_template = PromptTemplate(
         input_variables=["context", "question"],
@@ -29,6 +32,7 @@ def initialize_prompt():
     )
     return prompt_template
 
+@traceable
 def query_rag(question, vector_store, llm, prompt_template):
     try:
         print("Performing similarity search...")

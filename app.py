@@ -6,16 +6,19 @@ import time
 from dotenv import load_dotenv
 from passlib.hash import sha256_crypt
 from pathlib import Path
+from langsmith import Client
 from rag_pipeline.embedder import initialize_embeddings, initialize_llm
 from rag_pipeline.weviate_helper import initialize_weaviate, create_or_connect_class
 from rag_pipeline.file_loader import load_documents, split_documents
 from rag_pipeline.rag_pipeline import store_embeddings, initialize_prompt, query_rag
 
-# Load environment variables
 load_dotenv()
 
+# Initialize LangSmith client
+langsmith_client = Client()
+
 # Validate environment variables
-required_env_vars = ["GOOGLE_API_KEY", "WEAVIATE_URL", "WEAVIATE_API_KEY"]
+required_env_vars = ["GOOGLE_API_KEY", "WEAVIATE_URL", "WEAVIATE_API_KEY", "LANGCHAIN_API_KEY"]
 missing_vars = [var for var in required_env_vars if not os.getenv(var)]
 if missing_vars:
     st.error(f"Missing environment variables: {', '.join(missing_vars)}. Please check .env file.")
@@ -202,27 +205,86 @@ else:
         st.info("Please upload and process documents to start chatting.")
     else:
         # Chat container
-        with st.container():
-            for message in st.session_state.chat_history:
+        chat_container = st.container()
+        with chat_container:
+            for idx, message in enumerate(st.session_state.chat_history):
                 css_class = "chat-message-user" if message["role"] == "user" else "chat-message-assistant"
                 st.markdown(f"<div class='{css_class}'>{message['content']}</div>", unsafe_allow_html=True)
+                
+                # Show feedback UI for the latest assistant message, or display finalized feedback for past messages
+                if message["role"] == "assistant":
+                    # Check if this is the latest assistant message (i.e., the last message in chat_history)
+                    is_latest_message = idx == len(st.session_state.chat_history) - 1
+                    if is_latest_message:
+                        # Display feedback options with a submit button
+                        feedback_key = f"feedback_{idx}"
+                        default_feedback = message.get("feedback", None)
+                        feedback = st.radio(
+                            "Was this response helpful?",
+                            ("👍 Yes", "👎 No"),
+                            key=feedback_key,
+                            horizontal=True,
+                            index=None if default_feedback is None else (0 if default_feedback == "👍 Yes" else 1)
+                        )
+
+                        if st.button("Submit Feedback", key=f"submit_feedback_{idx}"):
+                            if feedback is None:
+                                st.warning("Please select a feedback option before submitting.")
+                            elif message.get("run_id"):
+                                feedback_score = 1 if feedback == "👍 Yes" else 0
+                                langsmith_client.create_feedback(
+                                    run_id=message["run_id"],
+                                    key="user-feedback",
+                                    score=feedback_score,
+                                    comment=f"User feedback for message {idx}"
+                                )
+                                message["feedback"] = feedback
+                                st.rerun()
+                            else:
+                                st.error("Unable to log feedback: No LangSmith run ID found.")
+
+                        # Display the current feedback if it exists
+                        if "feedback" in message:
+                            st.markdown(f"**Current Feedback:** {message['feedback']}", unsafe_allow_html=True)
+                    else:
+                        # For past messages, display finalized feedback if it exists
+                        if "feedback" in message:
+                            st.markdown(f"**Feedback:** {message['feedback']}", unsafe_allow_html=True)
 
         # Chat input
         if question := st.chat_input("Ask a question about the documents"):
             st.session_state.last_activity = time.time()
             st.session_state.chat_history.append({"role": "user", "content": question})
-            st.markdown(f"<div class='chat-message-user'>{question}</div>", unsafe_allow_html=True)
-            with st.container():
+            with chat_container:
+                st.markdown(f"<div class='chat-message-user'>{question}</div>", unsafe_allow_html=True)
                 with st.spinner("Processing..."):
                     try:
+                        # Get the latest run ID before calling query_rag
+                        runs = list(langsmith_client.list_runs(project_name="DocQuery-Chat-Eval", limit=1))
+                        pre_run_id = runs[0].id if runs else None
+
+                        # Query the RAG system
                         answer = query_rag(
                             question,
                             st.session_state.vector_store,
                             initialize_llm(),
                             st.session_state.prompt_template
                         )
-                        st.markdown(f"<div class='chat-message-assistant'>{answer}</div>", unsafe_allow_html=True)
-                        st.session_state.chat_history.append({"role": "assistant", "content": answer})
+
+                        # Get the latest run ID after the query
+                        runs = list(langsmith_client.list_runs(project_name="DocQuery-Chat-Eval", limit=1))
+                        post_run_id = runs[0].id if runs else None
+
+                        # Store the run ID with the message
+                        assistant_message = {
+                            "role": "assistant",
+                            "content": answer,
+                            "run_id": post_run_id if pre_run_id != post_run_id else None
+                        }
+                        st.session_state.chat_history.append(assistant_message)
+                        st.rerun()  # Rerun to render the new message via the chat_history loop
+
                     except Exception as e:
                         st.error(f"Error generating answer: {e}")
                         st.session_state.chat_history.append({"role": "assistant", "content": f"Error: {e}"})
+                        st.rerun()

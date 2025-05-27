@@ -15,4 +15,5 @@ langchain-weaviate
 unstructured>=0.10.30
 passlib
 weaviate-client
+streamlit
 
