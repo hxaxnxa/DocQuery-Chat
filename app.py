@@ -5,6 +5,7 @@ import json
 import time
 import uuid
 import html
+import logging
 from dotenv import load_dotenv
 from passlib.hash import sha256_crypt
 from pathlib import Path
@@ -13,6 +14,14 @@ from rag_pipeline.embedder import initialize_embeddings, initialize_llm
 from rag_pipeline.weviate_helper import initialize_weaviate, create_or_connect_class
 from rag_pipeline.file_loader import load_documents, split_documents
 from rag_pipeline.rag_pipeline import store_embeddings, initialize_prompt, query_rag
+
+# Configure logging
+logging.basicConfig(
+    filename='app.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -73,7 +82,7 @@ def clear_temp_dir():
 def cleanup():
     """Close Weaviate client and clear session state."""
     if st.session_state.weaviate_client is not None:
-        print("Closing Weaviate client...")
+        logger.info("Closing Weaviate client...")
         st.session_state.weaviate_client.close()
         st.session_state.weaviate_client = None
     st.session_state.vector_store = None
@@ -212,24 +221,19 @@ else:
         with chat_container:
             for idx, message in enumerate(st.session_state.chat_history):
                 if message["role"] == "user":
-                    # Escape HTML characters in user message
                     escaped_content = html.escape(message['content'])
                     st.markdown(f"<div class='chat-message-user'>{escaped_content}</div>", unsafe_allow_html=True)
                 elif message["role"] == "rewritten_query":
-                    # Escape HTML characters in rewritten query
                     escaped_content = html.escape(message['content'])
                     st.markdown(f"<div class='chat-message-rewritten'>Rewritten Query: {escaped_content}</div>", unsafe_allow_html=True)
                 else:  # assistant
-                    # Escape HTML characters in assistant response
                     escaped_content = html.escape(message['content'])
                     st.markdown(f"<div class='chat-message-assistant'>{escaped_content}</div>", unsafe_allow_html=True)
                 
-                # Show feedback UI for the latest assistant message, or display finalized feedback for past messages
+                # Show feedback UI for the latest assistant message
                 if message["role"] == "assistant":
-                    # Check if this is the latest assistant message
                     is_latest_message = idx == len(st.session_state.chat_history) - 1
                     if is_latest_message:
-                        # Display feedback options with a submit button
                         feedback_key = f"feedback_{idx}"
                         default_feedback = message.get("feedback", None)
                         feedback = st.radio(
@@ -256,11 +260,9 @@ else:
                             else:
                                 st.error("Unable to log feedback: No LangSmith run ID found.")
 
-                        # Display the current feedback if it exists
                         if "feedback" in message:
                             st.markdown(f"**Current Feedback:** {html.escape(message['feedback'])}", unsafe_allow_html=True)
                     else:
-                        # For past messages, display finalized feedback if it exists
                         if "feedback" in message:
                             st.markdown(f"**Feedback:** {html.escape(message['feedback'])}", unsafe_allow_html=True)
 
@@ -269,19 +271,14 @@ else:
             st.session_state.last_activity = time.time()
             st.session_state.chat_history.append({"role": "user", "content": question})
             with chat_container:
-                # Escape HTML characters for display
                 escaped_question = html.escape(question)
                 st.markdown(f"<div class='chat-message-user'>{escaped_question}</div>", unsafe_allow_html=True)
                 with st.spinner("Processing..."):
                     try:
-                        # Initialize the LLM
                         llm = initialize_llm()
-                        
-                        # Get the latest run ID before calling query_rag
                         runs = list(langsmith_client.list_runs(project_name="DocQuery-Chat-Eval", limit=1))
                         pre_run_id = runs[0].id if runs else None
 
-                        # Query the RAG system
                         result = query_rag(
                             question,
                             st.session_state.vector_store,
@@ -290,28 +287,23 @@ else:
                             run_id=pre_run_id
                         )
 
-                        # Extract answer and metadata
                         answer = result["answer"]
                         rewritten_query = result["metadata"]["rewritten_query"]
 
-                        # Log the rewritten query to chat history
                         st.session_state.chat_history.append({"role": "rewritten_query", "content": rewritten_query})
-                        # Escape HTML characters for rewritten query display
                         escaped_rewritten_query = html.escape(rewritten_query)
                         st.markdown(f"<div class='chat-message-rewritten'>Rewritten Query: {escaped_rewritten_query}</div>", unsafe_allow_html=True)
 
-                        # Get the latest run ID after the query
                         runs = list(langsmith_client.list_runs(project_name="DocQuery-Chat-Eval", limit=1))
                         post_run_id = runs[0].id if runs else None
 
-                        # Store the run ID with the message
                         assistant_message = {
                             "role": "assistant",
                             "content": answer,
                             "run_id": post_run_id if pre_run_id != post_run_id else None
                         }
                         st.session_state.chat_history.append(assistant_message)
-                        st.rerun()  # Rerun to render the new message via the chat_history loop
+                        st.rerun()
 
                     except Exception as e:
                         st.error(f"Error generating answer: {e}")
