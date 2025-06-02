@@ -10,12 +10,14 @@ A secure, chatbot-style document query application built with Streamlit, Weaviat
 - 🧠 **Weaviate (free tier)** as the vector database to store document embeddings  
 - 🔍 **Gemini embeddings** to convert text into vector representations  
 - 💬 **Gemini model** for generating responses to user queries
+- 📊 **LangSmith** for tracing and user feedback evaluation
 
 The app includes features like:
 - 🔐 User authentication
 - 📁 File validation
 - ⏳ Session timeout
 - 💬 A conversational chat interface
+- 📜 Detailed logging for debugging (app.log)
 
 ---
 
@@ -24,7 +26,8 @@ The app includes features like:
 - Python 3.8 or higher  
 - Git  
 - A [Weaviate Cloud account (free tier)](https://console.weaviate.cloud/)  
-- A [Google API key](https://makersuite.google.com/app/apikey) for Gemini embeddings and model  
+- A [Google API key](https://makersuite.google.com/app/apikey) for Gemini embeddings and model
+- A LangSmith API key for tracing
 
 ---
 
@@ -60,11 +63,17 @@ Create a `.env` file in the project root and add the following:
 GOOGLE_API_KEY=your_key
 WEAVIATE_URL=your_url
 WEAVIATE_API_KEY=your_key
+LANGCHAIN_API_KEY=your_langsmith_key
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_PROJECT_NAME=DocQuery-Chat-Eval
 ```
 
 * `GOOGLE_API_KEY`: Your Gemini API key from Google AI Studio
 * `WEAVIATE_URL`: Your Weaviate cluster URL (e.g., [https://your-cluster.weaviate.cloud](https://your-cluster.weaviate.cloud))
 * `WEAVIATE_API_KEY`: Your Weaviate API key from the Weaviate Cloud dashboard
+* `LANGCHAIN_API_KEY`: Your LangSmith API key for tracing
+* `LANGCHAIN_PROJECT_NAME`: Your LangSmith project name (set to DocQuery-Chat-Eval as used in the app)
+* `LANGCHAIN_TRACING_V2`: Set to true for tracing
 
 ### 5. Create User Credentials
 
@@ -77,6 +86,10 @@ python create_users.py
 This creates a default user:
 `Username: admin`
 `Password: securepass123`
+
+### 6. Verify Weaviate Setup
+
+Ensure your Weaviate cluster is running and accessible. The app connects to the Document class in Weaviate to store embeddings.
 
 ---
 
@@ -109,7 +122,10 @@ Open your browser and go to:
 
 ### 💬 Ask Questions
 
-* Use natural language in the chat (e.g., *"Summarize the document"*, *"What is the main topic?"*)
+* Use natural language in the chat (e.g., "What is the latest version of Python?", "Summarize the document").
+* Queries are rewritten for clarity (e.g., "What is the latest version of Python?" → "Current version of Python") using the Gemini model.
+* Answers are generated using the Gemini model and displayed in the chat interface.
+* Provide feedback on responses using the "👍 Yes" or "👎 No" options, which is logged to LangSmith for evaluation.
 
 ### ⏲️ Session Management
 
@@ -128,6 +144,7 @@ Open your browser and go to:
   * Malware scanning
   * Database-backed user system
 * **Performance**: For large documents, reduce the `chunk size` in `rag_pipeline/file_loader.py` or batch process documents.
+* **Logging**: Detailed logs are saved to app.log for debugging.
 
 ---
 
